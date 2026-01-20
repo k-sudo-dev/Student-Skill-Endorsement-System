@@ -131,3 +131,196 @@
     )
   )
 )
+
+;; Public functions
+;; #[allow(unchecked_data)]
+(define-public (add-skill (skill-name (string-ascii 100)) (proficiency-level (string-ascii 20)))
+  (let
+    (
+      (skill-id (var-get skill-nonce))
+      (student tx-sender)
+      (current-skills (get-user-skills-count student))
+    )
+    (asserts! (< current-skills max-skills-per-user) err-skill-limit)
+    (map-set student-skills 
+      { student: student, skill-id: skill-id }
+      {
+        skill-name: skill-name,
+        proficiency-level: proficiency-level,
+        added-at: stacks-block-height,
+        verified: false,
+        category: "general"
+      }
+    )
+    (map-set user-skills-count student (+ current-skills u1))
+    (var-set skill-nonce (+ skill-id u1))
+    (ok skill-id)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (add-skill-with-category (skill-name (string-ascii 100)) (proficiency-level (string-ascii 20)) (category (string-ascii 50)))
+  (let
+    (
+      (skill-id (var-get skill-nonce))
+      (student tx-sender)
+      (current-skills (get-user-skills-count student))
+    )
+    (asserts! (< current-skills max-skills-per-user) err-skill-limit)
+    (map-set student-skills 
+      { student: student, skill-id: skill-id }
+      {
+        skill-name: skill-name,
+        proficiency-level: proficiency-level,
+        added-at: stacks-block-height,
+        verified: false,
+        category: category
+      }
+    )
+    (map-set user-skills-count student (+ current-skills u1))
+    (var-set skill-nonce (+ skill-id u1))
+    (update-category-count category)
+    (ok skill-id)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (endorse-skill (student principal) (skill-id uint) (comment (string-ascii 200)))
+  (let
+    (
+      (endorser tx-sender)
+      (skill (unwrap! (map-get? student-skills { student: student, skill-id: skill-id }) err-not-found))
+      (current-count (get-endorsement-count student skill-id))
+    )
+    (asserts! (var-get platform-active) err-unauthorized)
+    (asserts! (not (is-eq endorser student)) err-self-endorse)
+    (asserts! (is-none (map-get? endorsements { student: student, skill-id: skill-id, endorser: endorser })) err-already-endorsed)
+    (map-set endorsements 
+      { student: student, skill-id: skill-id, endorser: endorser }
+      {
+        endorsed-at: stacks-block-height,
+        comment: comment,
+        rating: u5
+      }
+    )
+    (map-set skill-endorsement-count
+      { student: student, skill-id: skill-id }
+      (+ current-count u1)
+    )
+    (var-set total-endorsements (+ (var-get total-endorsements) u1))
+    (update-endorser-stats endorser)
+    (update-user-reputation student)
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (endorse-skill-with-rating (student principal) (skill-id uint) (comment (string-ascii 200)) (rating uint))
+  (let
+    (
+      (endorser tx-sender)
+      (skill (unwrap! (map-get? student-skills { student: student, skill-id: skill-id }) err-not-found))
+      (current-count (get-endorsement-count student skill-id))
+    )
+    (asserts! (var-get platform-active) err-unauthorized)
+    (asserts! (not (is-eq endorser student)) err-self-endorse)
+    (asserts! (is-none (map-get? endorsements { student: student, skill-id: skill-id, endorser: endorser })) err-already-endorsed)
+    (asserts! (and (>= rating u1) (<= rating u10)) err-invalid-level)
+    (map-set endorsements 
+      { student: student, skill-id: skill-id, endorser: endorser }
+      {
+        endorsed-at: stacks-block-height,
+        comment: comment,
+        rating: rating
+      }
+    )
+    (map-set skill-endorsement-count
+      { student: student, skill-id: skill-id }
+      (+ current-count u1)
+    )
+    (var-set total-endorsements (+ (var-get total-endorsements) u1))
+    (update-endorser-stats endorser)
+    (update-user-reputation student)
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (update-proficiency (skill-id uint) (new-level (string-ascii 20)))
+  (let
+    (
+      (student tx-sender)
+      (skill (unwrap! (map-get? student-skills { student: student, skill-id: skill-id }) err-not-found))
+    )
+    (map-set student-skills 
+      { student: student, skill-id: skill-id }
+      (merge skill { proficiency-level: new-level })
+    )
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (verify-skill (student principal) (skill-id uint))
+  (let
+    (
+      (skill (unwrap! (map-get? student-skills { student: student, skill-id: skill-id }) err-not-found))
+      (endorsement-count (get-endorsement-count student skill-id))
+    )
+    (asserts! (>= endorsement-count u3) err-unauthorized)
+    (map-set student-skills 
+      { student: student, skill-id: skill-id }
+      (merge skill { verified: true })
+    )
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (remove-skill (skill-id uint))
+  (let
+    (
+      (student tx-sender)
+      (skill (unwrap! (map-get? student-skills { student: student, skill-id: skill-id }) err-not-found))
+      (current-count (get-user-skills-count student))
+    )
+    (map-delete student-skills { student: student, skill-id: skill-id })
+    (map-set user-skills-count student (if (> current-count u0) (- current-count u1) u0))
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (update-skill-category (skill-id uint) (new-category (string-ascii 50)))
+  (let
+    (
+      (student tx-sender)
+      (skill (unwrap! (map-get? student-skills { student: student, skill-id: skill-id }) err-not-found))
+    )
+    (map-set student-skills 
+      { student: student, skill-id: skill-id }
+      (merge skill { category: new-category })
+    )
+    (update-category-count new-category)
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (register-category (category (string-ascii 50)))
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-unauthorized)
+    (asserts! (is-none (map-get? skill-categories category)) err-already-exists)
+    (map-set skill-categories category { active: true, skill-count: u0 })
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (toggle-platform-status)
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-unauthorized)
+    (var-set platform-active (not (var-get platform-active)))
+    (ok (var-get platform-active))
+  )
+)
