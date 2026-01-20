@@ -324,3 +324,45 @@
     (ok (var-get platform-active))
   )
 )
+
+;; Private functions
+;; #[allow(unchecked_data)]
+(define-private (update-endorser-stats (endorser principal))
+  (let
+    (
+      (current-stats (get-endorser-stats endorser))
+      (new-total (+ (get total-endorsements-given current-stats) u1))
+      (new-reputation (+ (get reputation-score current-stats) u10))
+    )
+    (map-set endorser-stats endorser 
+      {
+        total-endorsements-given: new-total,
+        reputation-score: new-reputation
+      }
+    )
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-private (update-user-reputation (user principal))
+  (let
+    (
+      (current-rep (get-user-reputation user))
+      (new-rep (+ current-rep u5))
+    )
+    (map-set user-reputation user new-rep)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-private (update-category-count (category (string-ascii 50)))
+  (let
+    (
+      (category-info (default-to { active: true, skill-count: u0 } (map-get? skill-categories category)))
+      (new-count (+ (get skill-count category-info) u1))
+    )
+    (map-set skill-categories category 
+      (merge category-info { skill-count: new-count })
+    )
+  )
+)
